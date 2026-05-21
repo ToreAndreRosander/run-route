@@ -1,7 +1,12 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import mapboxgl, { GeoJSONSource, LngLatLike, Map, Marker } from "mapbox-gl";
+import mapboxgl, {
+  GeoJSONSource,
+  LngLatLike,
+  Map as MapboxMap,
+  Marker,
+} from "mapbox-gl";
 import styles from "./page.module.css";
 
 type Coordinates = [number, number];
@@ -114,7 +119,7 @@ function getRoutePreviewCoordinate(
 
 export default function RoutePlanner() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<Map | null>(null);
+  const map = useRef<MapboxMap | null>(null);
   const marker = useRef<Marker | null>(null);
   const routePreviewAnimation = useRef<number | null>(null);
   const [start, setStart] = useState<Coordinates | null>(null);
@@ -345,7 +350,7 @@ export default function RoutePlanner() {
 
     const startedAt = performance.now();
     const usesTerrain = Boolean(currentMap.getTerrain());
-    const terrainElevationByCoordinate = new globalThis.Map<string, number>();
+    const terrainElevationByCoordinate = new Map<string, number>();
     const getPreviewElevation = (coordinate: Coordinates) => {
       if (!usesTerrain) {
         return 0;
