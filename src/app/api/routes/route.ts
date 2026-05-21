@@ -15,7 +15,13 @@ type DirectionsResponse = {
   routes?: DirectionsRoute[];
 };
 
+type RouteCandidate = {
+  coordinates: Coordinates[];
+  bearing: number;
+};
+
 const EARTH_RADIUS_METERS = 6_371_000;
+const MAX_ROUTE_OPTIONS = 5;
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -46,17 +52,28 @@ export async function POST(request: Request) {
   const targetDistanceMeters = distanceKm * 1000;
   const candidates = buildLoopCandidates(start, targetDistanceMeters);
   const routes = await Promise.all(
-    candidates.map((candidate) => fetchDirections(candidate, accessToken)),
+    candidates.map(async (candidate) => ({
+      candidate,
+      route: await fetchDirections(candidate.coordinates, accessToken),
+    })),
   );
-  const bestRoute = routes
-    .filter((route): route is DirectionsRoute => Boolean(route))
-    .toSorted(
-      (left, right) =>
-        scoreRoute(left, start, targetDistanceMeters) -
-        scoreRoute(right, start, targetDistanceMeters),
-    )[0];
+  const bestRoutes = selectRouteOptions(
+    routes
+      .filter(
+        (
+          result,
+        ): result is { candidate: RouteCandidate; route: DirectionsRoute } =>
+          Boolean(result.route),
+      )
+      .map(({ candidate, route }) => ({
+        candidate,
+        route,
+        score: scoreRoute(route, start, targetDistanceMeters),
+      }))
+      .toSorted((left, right) => left.score - right.score),
+  );
 
-  if (!bestRoute) {
+  if (bestRoutes.length === 0) {
     return NextResponse.json(
       { error: "Mapbox could not find a suitable running route from that point." },
       { status: 502 },
@@ -64,14 +81,17 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    geometry: bestRoute.geometry,
-    distanceMeters: bestRoute.distance,
-    durationSeconds: bestRoute.duration,
-    endDistanceMeters: haversineDistance(
-      start,
-      bestRoute.geometry.coordinates[bestRoute.geometry.coordinates.length - 1],
-    ),
-    targetDistanceMeters,
+    routes: bestRoutes.map(({ route }, index) => ({
+      id: `route-${index + 1}`,
+      geometry: route.geometry,
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
+      endDistanceMeters: haversineDistance(
+        start,
+        route.geometry.coordinates[route.geometry.coordinates.length - 1],
+      ),
+      targetDistanceMeters,
+    })),
   });
 }
 
@@ -97,14 +117,61 @@ function parseCoordinates(value: unknown): Coordinates | null {
   return [longitude, latitude];
 }
 
-function buildLoopCandidates(start: Coordinates, targetDistanceMeters: number) {
-  const radius = targetDistanceMeters / (2 + Math.sqrt(3));
-  return [0, 45, 90, 135, 180, 225, 270, 315].map((bearing) => [
-    start,
-    destination(start, radius, bearing),
-    destination(start, radius, bearing + 120),
-    start,
-  ]);
+function buildLoopCandidates(
+  start: Coordinates,
+  targetDistanceMeters: number,
+): RouteCandidate[] {
+  const sides = 5;
+  const radius = targetDistanceMeters / (2 * sides * Math.sin(Math.PI / sides));
+  const bearings = [0, 45, 90, 135, 180, 225, 270, 315];
+
+  return bearings.flatMap((bearing) =>
+    [1, -1].map((direction) => {
+      const center = destination(start, radius, bearing + 180);
+      const coordinates: Coordinates[] = [start];
+
+      for (let index = 1; index < sides; index += 1) {
+        coordinates.push(
+          destination(center, radius, bearing + direction * index * (360 / sides)),
+        );
+      }
+
+      coordinates.push(start);
+
+      return { coordinates, bearing };
+    }),
+  );
+}
+
+function selectRouteOptions<
+  T extends { candidate: RouteCandidate; route: DirectionsRoute; score: number },
+>(routes: T[]) {
+  const selected: T[] = [];
+
+  for (const minimumBearingSeparation of [60, 35, 0]) {
+    for (const route of routes) {
+      if (
+        selected.includes(route) ||
+        selected.some(
+          (selectedRoute) =>
+            bearingSeparation(
+              selectedRoute.candidate.bearing,
+              route.candidate.bearing,
+            ) < minimumBearingSeparation,
+        )
+      ) {
+        continue;
+      }
+
+      selected.push(route);
+
+      if (selected.length === MAX_ROUTE_OPTIONS) {
+        return selected;
+      }
+    }
+  }
+
+  return selected;
 }
 
 async function fetchDirections(
@@ -154,8 +221,96 @@ function scoreRoute(
 ) {
   const end = route.geometry.coordinates[route.geometry.coordinates.length - 1];
   return (
-    Math.abs(route.distance - targetDistanceMeters) + haversineDistance(start, end) * 2
+    Math.abs(route.distance - targetDistanceMeters) * 1.4 +
+    haversineDistance(start, end) * 3 +
+    sharpTurnPenalty(route.geometry.coordinates) +
+    loopAreaPenalty(route.geometry.coordinates, start, targetDistanceMeters)
   );
+}
+
+function sharpTurnPenalty(coordinates: Coordinates[]) {
+  return coordinates.reduce((penalty, coordinate, index) => {
+    const previous = coordinates[index - 1];
+    const next = coordinates[index + 1];
+
+    if (
+      !previous ||
+      !next ||
+      haversineDistance(previous, coordinate) < 25 ||
+      haversineDistance(coordinate, next) < 25
+    ) {
+      return penalty;
+    }
+
+    const turnAngle = bearingSeparation(
+      bearingBetween(previous, coordinate),
+      bearingBetween(coordinate, next),
+    );
+
+    if (turnAngle < 135) {
+      return penalty;
+    }
+
+    return penalty + (turnAngle - 135) ** 2 * 2 + (turnAngle > 165 ? 2_000 : 0);
+  }, 0);
+}
+
+function loopAreaPenalty(
+  coordinates: Coordinates[],
+  start: Coordinates,
+  targetDistanceMeters: number,
+) {
+  const minimumLoopArea = targetDistanceMeters ** 2 * 0.012;
+  const area = enclosedArea(coordinates, start);
+
+  return Math.max(0, minimumLoopArea - area) / 20;
+}
+
+function enclosedArea(coordinates: Coordinates[], origin: Coordinates) {
+  const projected = coordinates.map((coordinate) => project(coordinate, origin));
+  const doubleArea = projected.reduce((sum, [x, y], index) => {
+    const [nextX, nextY] = projected[(index + 1) % projected.length];
+
+    return sum + x * nextY - nextX * y;
+  }, 0);
+
+  return Math.abs(doubleArea) / 2;
+}
+
+function project(
+  [longitude, latitude]: Coordinates,
+  [originLongitude, originLatitude]: Coordinates,
+) {
+  const x =
+    toRadians(longitude - originLongitude) *
+    EARTH_RADIUS_METERS *
+    Math.cos(toRadians(originLatitude));
+  const y = toRadians(latitude - originLatitude) * EARTH_RADIUS_METERS;
+
+  return [x, y];
+}
+
+function bearingBetween(
+  [startLongitude, startLatitude]: Coordinates,
+  [endLongitude, endLatitude]: Coordinates,
+) {
+  const startLatitudeRadians = toRadians(startLatitude);
+  const endLatitudeRadians = toRadians(endLatitude);
+  const longitudeDelta = toRadians(endLongitude - startLongitude);
+  const y = Math.sin(longitudeDelta) * Math.cos(endLatitudeRadians);
+  const x =
+    Math.cos(startLatitudeRadians) * Math.sin(endLatitudeRadians) -
+    Math.sin(startLatitudeRadians) *
+      Math.cos(endLatitudeRadians) *
+      Math.cos(longitudeDelta);
+
+  return (toDegrees(Math.atan2(y, x)) + 360) % 360;
+}
+
+function bearingSeparation(left: number, right: number) {
+  const difference = Math.abs(left - right) % 360;
+
+  return difference > 180 ? 360 - difference : difference;
 }
 
 function destination(

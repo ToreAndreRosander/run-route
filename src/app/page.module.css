@@ -150,6 +150,55 @@
   background: #ffe4e6;
 }
 
+.routeOptions {
+  display: grid;
+  gap: 12px;
+}
+
+.routeOptions h3 {
+  font-size: 1.1rem;
+}
+
+.optionList {
+  display: grid;
+  gap: 10px;
+}
+
+.routeOption,
+.routeOptionActive {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  border: 1px solid rgba(31, 122, 77, 0.2);
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: #102016;
+  text-align: left;
+  background: #f7fbf8;
+  cursor: pointer;
+}
+
+.routeOptionActive {
+  border-color: #1f7a4d;
+  background: #e2f2e9;
+}
+
+.routeOption span,
+.routeOptionActive span {
+  font-weight: 800;
+}
+
+.routeOption strong,
+.routeOptionActive strong {
+  justify-self: end;
+}
+
+.routeOption small,
+.routeOptionActive small {
+  color: #53645a;
+}
+
 .result {
   padding: 18px;
   border-radius: 20px;

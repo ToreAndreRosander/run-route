@@ -7,11 +7,16 @@ import styles from "./page.module.css";
 type Coordinates = [number, number];
 
 type RouteResponse = {
+  id: string;
   geometry: GeoJSON.LineString;
   distanceMeters: number;
   durationSeconds: number;
   endDistanceMeters: number;
   targetDistanceMeters: number;
+};
+
+type RoutesResponse = {
+  routes: RouteResponse[];
 };
 
 const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
@@ -22,10 +27,12 @@ export default function RoutePlanner() {
   const marker = useRef<Marker | null>(null);
   const [start, setStart] = useState<Coordinates | null>(null);
   const [distanceKm, setDistanceKm] = useState(5);
-  const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [routes, setRoutes] = useState<RouteResponse[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
+  const selectedRoute = routes[selectedRouteIndex] ?? null;
 
   useEffect(() => {
     if (!mapContainer.current || map.current || !accessToken) {
@@ -43,7 +50,8 @@ export default function RoutePlanner() {
     nextMap.addControl(new mapboxgl.NavigationControl(), "top-right");
     nextMap.on("click", (event) => {
       setStart([event.lngLat.lng, event.lngLat.lat]);
-      setRoute(null);
+      setRoutes([]);
+      setSelectedRouteIndex(0);
       setError(null);
     });
 
@@ -75,15 +83,33 @@ export default function RoutePlanner() {
 
   useEffect(() => {
     const currentMap = map.current;
-    if (!currentMap || !route) {
+    if (!currentMap) {
       return;
     }
 
+    if (!selectedRoute) {
+      if (currentMap.getLayer("running-route-line")) {
+        currentMap.removeLayer("running-route-line");
+      }
+
+      if (currentMap.getSource("running-route")) {
+        currentMap.removeSource("running-route");
+      }
+
+      return;
+    }
+
+    let isCancelled = false;
+
     const updateRouteLayer = () => {
+      if (isCancelled) {
+        return;
+      }
+
       const data: GeoJSON.Feature<GeoJSON.LineString> = {
         type: "Feature",
         properties: {},
-        geometry: route.geometry,
+        geometry: selectedRoute.geometry,
       };
 
       if (currentMap.getSource("running-route")) {
@@ -108,11 +134,11 @@ export default function RoutePlanner() {
         });
       }
 
-      const bounds = route.geometry.coordinates.reduce(
+      const bounds = selectedRoute.geometry.coordinates.reduce(
         (nextBounds, coordinate) => nextBounds.extend(coordinate as Coordinates),
         new mapboxgl.LngLatBounds(
-          route.geometry.coordinates[0] as Coordinates,
-          route.geometry.coordinates[0] as Coordinates,
+          selectedRoute.geometry.coordinates[0] as Coordinates,
+          selectedRoute.geometry.coordinates[0] as Coordinates,
         ),
       );
       currentMap.fitBounds(bounds, { padding: 70, maxZoom: 15 });
@@ -123,7 +149,11 @@ export default function RoutePlanner() {
     } else {
       currentMap.once("load", updateRouteLayer);
     }
-  }, [route]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedRoute]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -141,15 +171,22 @@ export default function RoutePlanner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ start, distanceKm }),
       });
-      const data = (await response.json()) as RouteResponse | { error: string };
+      const data = (await response.json()) as RoutesResponse | { error: string };
 
       if (!response.ok) {
         throw new Error("error" in data ? data.error : "Could not find a route.");
       }
 
-      setRoute(data as RouteResponse);
+      const routeOptions = (data as RoutesResponse).routes;
+      if (!Array.isArray(routeOptions) || routeOptions.length === 0) {
+        throw new Error("Could not find a route.");
+      }
+
+      setRoutes(routeOptions);
+      setSelectedRouteIndex(0);
     } catch (nextError) {
-      setRoute(null);
+      setRoutes([]);
+      setSelectedRouteIndex(0);
       setError(
         nextError instanceof Error ? nextError.message : "Could not find a route.",
       );
@@ -167,6 +204,8 @@ export default function RoutePlanner() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setStart([position.coords.longitude, position.coords.latitude]);
+        setRoutes([]);
+        setSelectedRouteIndex(0);
         setError(null);
       },
       () => setError("Could not read your current location."),
@@ -229,7 +268,11 @@ export default function RoutePlanner() {
               max="30"
               step="1"
               value={distanceKm}
-              onChange={(event) => setDistanceKm(Number(event.target.value))}
+              onChange={(event) => {
+                setDistanceKm(Number(event.target.value));
+                setRoutes([]);
+                setSelectedRouteIndex(0);
+              }}
             />
           </label>
 
@@ -239,25 +282,49 @@ export default function RoutePlanner() {
 
           {error && <p className={styles.error}>{error}</p>}
 
-          {route && (
+          {routes.length > 0 && (
+            <div className={styles.routeOptions}>
+              <h3>Choose a route</h3>
+              <div className={styles.optionList}>
+                {routes.map((routeOption, index) => (
+                  <button
+                    className={
+                      index === selectedRouteIndex
+                        ? styles.routeOptionActive
+                        : styles.routeOption
+                    }
+                    key={routeOption.id}
+                    type="button"
+                    onClick={() => setSelectedRouteIndex(index)}
+                  >
+                    <span>Option {index + 1}</span>
+                    <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
+                    <small>{Math.round(routeOption.durationSeconds / 60)} min</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {selectedRoute && (
             <div className={styles.result}>
-              <h3>Suggested route</h3>
+              <h3>Selected route</h3>
               <dl>
                 <div>
                   <dt>Distance</dt>
-                  <dd>{(route.distanceMeters / 1000).toFixed(2)} km</dd>
+                  <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
                   <dt>Target</dt>
-                  <dd>{(route.targetDistanceMeters / 1000).toFixed(2)} km</dd>
+                  <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
                   <dt>Estimated time</dt>
-                  <dd>{Math.round(route.durationSeconds / 60)} min</dd>
+                  <dd>{Math.round(selectedRoute.durationSeconds / 60)} min</dd>
                 </div>
                 <div>
                   <dt>Finish from start</dt>
-                  <dd>{Math.round(route.endDistanceMeters)} m</dd>
+                  <dd>{Math.round(selectedRoute.endDistanceMeters)} m</dd>
                 </div>
               </dl>
             </div>
