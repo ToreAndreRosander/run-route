@@ -25,9 +25,14 @@ type RoutesResponse = {
 };
 
 const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
-const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
-const PREVIEW_DURATION_MS = 12000;
-const PREVIEW_LOOK_AHEAD_METERS = 90;
+const PREVIEW_CAMERA_ALTITUDE_METERS = 350;
+const PREVIEW_SPEED_METERS_PER_SECOND = 1;
+const PREVIEW_MIN_DURATION_MS = 7000;
+const PREVIEW_MAX_DURATION_MS = 18000;
+const PREVIEW_LOOK_AHEAD_METERS = 250;
+const PREVIEW_MAX_LOOK_AHEAD_METERS = 500;
+const PREVIEW_TILT_DEGREES = 68;
+const PREVIEW_FOCUS_SMOOTHING_PER_SECOND = 50;
 const AUTOMATIC_CAMERA_UP_VECTOR = undefined;
 const EARTH_RADIUS_METERS = 6371000;
 
@@ -130,6 +135,25 @@ function getRoutePreviewCoordinate(
   ] as Coordinates;
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function toRadians(degrees: number) {
+  return (degrees * Math.PI) / 180;
+}
+
+function interpolateCoordinates(
+  start: Coordinates,
+  end: Coordinates,
+  factor: number,
+): Coordinates {
+  return [
+    start[0] + (end[0] - start[0]) * factor,
+    start[1] + (end[1] - start[1]) * factor,
+  ];
+}
+
 export default function RoutePlanner() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<MapboxMap | null>(null);
@@ -165,6 +189,7 @@ export default function RoutePlanner() {
       style: "mapbox://styles/rosander/cmpfrmomg001201sgeczua5od",
       center: DEFAULT_CENTER as LngLatLike,
       zoom: 12,
+      pitch: 55,
     });
 
     nextMap.addControl(new mapboxgl.NavigationControl(), "top-right");
@@ -361,7 +386,19 @@ export default function RoutePlanner() {
     currentMap.stop();
     setIsPreviewingRoute(true);
 
+    const previewDurationMs = clamp(
+      (track.totalDistanceMeters / PREVIEW_SPEED_METERS_PER_SECOND) * 1000,
+      PREVIEW_MIN_DURATION_MS,
+      PREVIEW_MAX_DURATION_MS,
+    );
+    const previewLookAheadMeters = clamp(
+      PREVIEW_CAMERA_ALTITUDE_METERS * Math.tan(toRadians(PREVIEW_TILT_DEGREES)),
+      PREVIEW_LOOK_AHEAD_METERS,
+      PREVIEW_MAX_LOOK_AHEAD_METERS,
+    );
     const startedAt = performance.now();
+    let previousFrameTimestamp = startedAt;
+    let smoothedFocusCoordinate: Coordinates | null = null;
     const usesTerrain = Boolean(currentMap.getTerrain());
     const terrainElevationByCoordinate = new Map<string, number>();
     const getPreviewElevation = (coordinate: Coordinates) => {
@@ -386,7 +423,7 @@ export default function RoutePlanner() {
 
     const animateRoutePreview = (timestamp: number) => {
       const progress = Math.min(
-        (timestamp - startedAt) / PREVIEW_DURATION_MS,
+        (timestamp - startedAt) / previewDurationMs,
         1,
       );
       const cameraDistance = track.totalDistanceMeters * progress;
@@ -394,23 +431,41 @@ export default function RoutePlanner() {
         track,
         cameraDistance,
       );
-      const focusCoordinate = getRoutePreviewCoordinate(
+      const rawFocusCoordinate = getRoutePreviewCoordinate(
         track,
         Math.min(
-          cameraDistance + PREVIEW_LOOK_AHEAD_METERS,
+          cameraDistance + previewLookAheadMeters,
           track.totalDistanceMeters,
         ),
       );
+      const deltaSeconds = Math.max(timestamp - previousFrameTimestamp, 0) / 1000;
+      previousFrameTimestamp = timestamp;
+      const smoothingFactor = clamp(
+        1 -
+          Math.exp(
+            -PREVIEW_FOCUS_SMOOTHING_PER_SECOND * deltaSeconds,
+          ),
+        0,
+        1,
+      );
+
+      smoothedFocusCoordinate = smoothedFocusCoordinate
+        ? interpolateCoordinates(
+            smoothedFocusCoordinate,
+            rawFocusCoordinate,
+            smoothingFactor,
+          )
+        : rawFocusCoordinate;
       const camera = currentMap.getFreeCameraOptions();
       const cameraElevation = getPreviewElevation(cameraCoordinate);
-      const focusElevation = getPreviewElevation(focusCoordinate);
+      const focusElevation = getPreviewElevation(smoothedFocusCoordinate);
 
       camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
         cameraCoordinate,
         cameraElevation + PREVIEW_CAMERA_ALTITUDE_METERS,
       );
       camera.lookAtPoint(
-        focusCoordinate,
+        smoothedFocusCoordinate,
         AUTOMATIC_CAMERA_UP_VECTOR,
         focusElevation,
       );
