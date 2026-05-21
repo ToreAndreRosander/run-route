@@ -511,7 +511,10 @@ export default function RoutePlanner() {
 
         <form className={styles.controls} onSubmit={handleSubmit}>
           <h2>Planlegg løpeturen</h2>
-          <p>Trykk på kartet eller bruk posisjonen i nettleseren for å sette startpunktet.</p>
+          <p>
+            Trykk på kartet eller bruk posisjonen i nettleseren for å sette
+            startpunktet.
+          </p>
 
           <button
             className={styles.secondaryButton}
