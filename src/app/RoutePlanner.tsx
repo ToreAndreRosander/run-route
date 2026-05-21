@@ -312,7 +312,7 @@ export default function RoutePlanner() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!start) {
-      setError("Select a starting point on the map first.");
+      setError("Velg først et startpunkt på kartet.");
       return;
     }
 
@@ -329,12 +329,12 @@ export default function RoutePlanner() {
       const data = (await response.json()) as RoutesResponse | { error: string };
 
       if (!response.ok) {
-        throw new Error("error" in data ? data.error : "Could not find a route.");
+        throw new Error("error" in data ? data.error : "Kunne ikke finne en rute.");
       }
 
       const routeOptions = (data as RoutesResponse).routes;
       if (!Array.isArray(routeOptions) || routeOptions.length === 0) {
-        throw new Error("Could not find a route.");
+        throw new Error("Kunne ikke finne en rute.");
       }
 
       setRoutes(routeOptions);
@@ -343,7 +343,7 @@ export default function RoutePlanner() {
       setRoutes([]);
       setSelectedRouteIndex(0);
       setError(
-        nextError instanceof Error ? nextError.message : "Could not find a route.",
+        nextError instanceof Error ? nextError.message : "Kunne ikke finne en rute.",
       );
     } finally {
       setIsLoading(false);
@@ -352,7 +352,7 @@ export default function RoutePlanner() {
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
-      setError("Your browser does not support geolocation.");
+      setError("Nettleseren din støtter ikke geolokasjon.");
       return;
     }
 
@@ -364,7 +364,7 @@ export default function RoutePlanner() {
         setSelectedRouteIndex(0);
         setError(null);
       },
-      () => setError("Could not read your current location."),
+      () => setError("Kunne ikke hente posisjonen din."),
       { enableHighAccuracy: true },
     );
   };
@@ -488,51 +488,50 @@ export default function RoutePlanner() {
     <main className={styles.page}>
       <section className={styles.hero}>
         <div>
-          <p className={styles.eyebrow}>Mapbox powered route finder</p>
-          <h1>Find a running route from anywhere.</h1>
+          <p className={styles.eyebrow}>Rutefinner drevet av Mapbox</p>
+          <h1>Finn en løperute fra hvor som helst.</h1>
           <p className={styles.lead}>
-            Pick a starting point, choose roughly how far you want to run, and
-            Run Route will look for a loop that finishes close to where you
-            began.
+            Velg et startpunkt, omtrent hvor langt du vil løpe, og Run Route
+            finner en rundløype som slutter nær der du startet.
           </p>
         </div>
       </section>
 
       <section className={styles.planner}>
         <div className={styles.mapPanel}>
-          <div ref={mapContainer} className={styles.map} aria-label="Map">
+          <div ref={mapContainer} className={styles.map} aria-label="Kart">
             {!accessToken && (
               <div className={styles.mapFallback}>
-                Add <code>NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN</code> to enable the
-                interactive Mapbox map.
+                Legg til <code>NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN</code> for å
+                aktivere det interaktive Mapbox-kartet.
               </div>
             )}
           </div>
         </div>
 
         <form className={styles.controls} onSubmit={handleSubmit}>
-          <h2>Plan your run</h2>
-          <p>Click the map or use your browser location to set the start.</p>
+          <h2>Planlegg løpeturen</h2>
+          <p>Trykk på kartet eller bruk posisjonen i nettleseren for å sette startpunktet.</p>
 
           <button
             className={styles.secondaryButton}
             type="button"
             onClick={useCurrentLocation}
           >
-            Use my current location
+            Bruk posisjonen min
           </button>
 
           <label className={styles.field}>
-            Starting point
+            Startpunkt
             <span className={styles.coordinates}>
               {start
                 ? `${start[1].toFixed(5)}, ${start[0].toFixed(5)}`
-                : "No point selected"}
+                : "Ingen punkt valgt"}
             </span>
           </label>
 
           <label className={styles.field}>
-            Approximate distance: {distanceKm} km
+            Omtrentlig distanse: {distanceKm} km
             <input
               type="range"
               min="2"
@@ -549,14 +548,49 @@ export default function RoutePlanner() {
           </label>
 
           <button className={styles.primaryButton} disabled={isLoading} type="submit">
-            {isLoading ? "Finding route..." : "Find route"}
+            {isLoading ? "Finner rute..." : "Finn rute"}
           </button>
+
+          {selectedRoute && (
+            <div className={styles.result}>
+              <h3>Valgt rute</h3>
+              <button
+                className={styles.previewButton}
+                type="button"
+                onClick={
+                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
+                }
+              >
+                {isPreviewingRoute
+                  ? "Stopp forhåndsvisning"
+                  : "Forhåndsvis ruten i 3D"}
+              </button>
+              <dl>
+                <div>
+                  <dt>Distanse</dt>
+                  <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
+                </div>
+                <div>
+                  <dt>Mål</dt>
+                  <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
+                </div>
+                <div>
+                  <dt>Estimert tid</dt>
+                  <dd>{Math.round(selectedRoute.durationSeconds / 60)} min</dd>
+                </div>
+                <div>
+                  <dt>Avstand til start</dt>
+                  <dd>{Math.round(selectedRoute.endDistanceMeters)} m</dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           {error && <p className={styles.error}>{error}</p>}
 
           {routes.length > 0 && (
             <div className={styles.routeOptions}>
-              <h3>Choose a route</h3>
+              <h3>Velg en rute</h3>
               <div className={styles.optionList}>
                 {routes.map((routeOption, index) => (
                   <button
@@ -572,45 +606,12 @@ export default function RoutePlanner() {
                       setSelectedRouteIndex(index);
                     }}
                   >
-                    <span>Option {index + 1}</span>
+                    <span>Alternativ {index + 1}</span>
                     <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
                     <small>{Math.round(routeOption.durationSeconds / 60)} min</small>
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          {selectedRoute && (
-            <div className={styles.result}>
-              <h3>Selected route</h3>
-              <button
-                className={styles.previewButton}
-                type="button"
-                onClick={
-                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
-                }
-              >
-                {isPreviewingRoute ? "Stop preview" : "Preview route in 3D"}
-              </button>
-              <dl>
-                <div>
-                  <dt>Distance</dt>
-                  <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
-                </div>
-                <div>
-                  <dt>Target</dt>
-                  <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
-                </div>
-                <div>
-                  <dt>Estimated time</dt>
-                  <dd>{Math.round(selectedRoute.durationSeconds / 60)} min</dd>
-                </div>
-                <div>
-                  <dt>Finish from start</dt>
-                  <dd>{Math.round(selectedRoute.endDistanceMeters)} m</dd>
-                </div>
-              </dl>
             </div>
           )}
         </form>
