@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
   if (!start || !Number.isFinite(distanceKm) || distanceKm < 2 || distanceKm > 30) {
     return NextResponse.json(
-      { error: "Provide a start coordinate and a distance between 2 and 30 km." },
+      { error: "Oppgi et startpunkt og en distanse mellom 2 og 30 km." },
       { status: 400 },
     );
   }
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
   if (!accessToken) {
     return NextResponse.json(
-      { error: "Mapbox access token is not configured." },
+      { error: "Mapbox-tilgangstoken er ikke konfigurert." },
       { status: 500 },
     );
   }
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
 
   if (bestRoutes.length === 0) {
     return NextResponse.json(
-      { error: "Mapbox could not find a suitable running route from that point." },
+      { error: "Mapbox kunne ikke finne en passende løperute fra dette punktet." },
       { status: 502 },
     );
   }

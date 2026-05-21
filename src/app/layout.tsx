@@ -3,8 +3,8 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Run Route",
-  description: "Find a running route close to your selected distance.",
+  title: "Run Route – finn en løperute",
+  description: "Finn en løperute nær ønsket distanse.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="nb">
       <body>{children}</body>
     </html>
   );
