@@ -1,7 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import mapboxgl, { GeoJSONSource, LngLatLike, Map, Marker } from "mapbox-gl";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import mapboxgl, {
+  GeoJSONSource,
+  LngLatLike,
+  Map as MapboxMap,
+  Marker,
+} from "mapbox-gl";
 import styles from "./page.module.css";
 
 type Coordinates = [number, number];
@@ -20,19 +25,158 @@ type RoutesResponse = {
 };
 
 const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
+const PREVIEW_CAMERA_ALTITUDE_METERS = 350;
+const PREVIEW_SPEED_METERS_PER_SECOND = 1;
+const PREVIEW_MIN_DURATION_MS = 7000;
+const PREVIEW_MAX_DURATION_MS = 18000;
+const PREVIEW_LOOK_AHEAD_METERS = 250;
+const PREVIEW_MAX_LOOK_AHEAD_METERS = 500;
+const PREVIEW_TILT_DEGREES = 68;
+const PREVIEW_FOCUS_SMOOTHING_PER_SECOND = 50;
+const AUTOMATIC_CAMERA_UP_VECTOR = undefined;
+const EARTH_RADIUS_METERS = 6371000;
+
+type RoutePreviewSegment = {
+  start: Coordinates;
+  end: Coordinates;
+  distanceMeters: number;
+  startsAtMeters: number;
+};
+
+type RoutePreviewTrack = {
+  segments: RoutePreviewSegment[];
+  totalDistanceMeters: number;
+};
+
+function getDistanceMeters(start: Coordinates, end: Coordinates) {
+  // Haversine great-circle distance between two longitude/latitude pairs.
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const startLatitude = toRadians(start[1]);
+  const endLatitude = toRadians(end[1]);
+  const latitudeDelta = toRadians(end[1] - start[1]);
+  const longitudeDelta = toRadians(end[0] - start[0]);
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(startLatitude) *
+      Math.cos(endLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return (
+    EARTH_RADIUS_METERS * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  );
+}
+
+function createRoutePreviewTrack(coordinates: GeoJSON.Position[]) {
+  const routeCoordinates = coordinates.map(
+    (coordinate) => [coordinate[0], coordinate[1]] as Coordinates,
+  );
+  const segments: RoutePreviewSegment[] = [];
+  let totalDistanceMeters = 0;
+
+  for (
+    let segmentIndex = 1;
+    segmentIndex < routeCoordinates.length;
+    segmentIndex += 1
+  ) {
+    const start = routeCoordinates[segmentIndex - 1];
+    const end = routeCoordinates[segmentIndex];
+    const distanceMeters = getDistanceMeters(start, end);
+
+    if (distanceMeters === 0) {
+      continue;
+    }
+
+    segments.push({
+      start,
+      end,
+      distanceMeters,
+      startsAtMeters: totalDistanceMeters,
+    });
+    totalDistanceMeters += distanceMeters;
+  }
+
+  return { segments, totalDistanceMeters };
+}
+
+function getRoutePreviewCoordinate(
+  track: RoutePreviewTrack,
+  distanceMeters: number,
+) {
+  let low = 0;
+  let high = track.segments.length - 1;
+
+  while (low < high) {
+    const midpoint = Math.floor((low + high) / 2);
+    const midpointSegment = track.segments[midpoint];
+
+    if (
+      distanceMeters <=
+      midpointSegment.startsAtMeters + midpointSegment.distanceMeters
+    ) {
+      high = midpoint;
+    } else {
+      low = midpoint + 1;
+    }
+  }
+
+  const segment = track.segments[low];
+
+  const segmentProgress = Math.min(
+    Math.max(
+      (distanceMeters - segment.startsAtMeters) / segment.distanceMeters,
+      0,
+    ),
+    1,
+  );
+
+  return [
+    segment.start[0] + (segment.end[0] - segment.start[0]) * segmentProgress,
+    segment.start[1] + (segment.end[1] - segment.start[1]) * segmentProgress,
+  ] as Coordinates;
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function toRadians(degrees: number) {
+  return (degrees * Math.PI) / 180;
+}
+
+function interpolateCoordinates(
+  start: Coordinates,
+  end: Coordinates,
+  factor: number,
+): Coordinates {
+  return [
+    start[0] + (end[0] - start[0]) * factor,
+    start[1] + (end[1] - start[1]) * factor,
+  ];
+}
 
 export default function RoutePlanner() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<Map | null>(null);
+  const map = useRef<MapboxMap | null>(null);
   const marker = useRef<Marker | null>(null);
+  const routePreviewAnimation = useRef<number | null>(null);
   const [start, setStart] = useState<Coordinates | null>(null);
   const [distanceKm, setDistanceKm] = useState(5);
   const [routes, setRoutes] = useState<RouteResponse[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreviewingRoute, setIsPreviewingRoute] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const selectedRoute = routes[selectedRouteIndex] ?? null;
+
+  const stopRoutePreview = useCallback(() => {
+    if (routePreviewAnimation.current !== null) {
+      cancelAnimationFrame(routePreviewAnimation.current);
+      routePreviewAnimation.current = null;
+    }
+
+    setIsPreviewingRoute(false);
+  }, []);
 
   useEffect(() => {
     if (!mapContainer.current || map.current || !accessToken) {
@@ -45,10 +189,12 @@ export default function RoutePlanner() {
       style: "mapbox://styles/rosander/cmpfrmomg001201sgeczua5od",
       center: DEFAULT_CENTER as LngLatLike,
       zoom: 12,
+      pitch: 55,
     });
 
     nextMap.addControl(new mapboxgl.NavigationControl(), "top-right");
     nextMap.on("click", (event) => {
+      stopRoutePreview();
       setStart([event.lngLat.lng, event.lngLat.lat]);
       setRoutes([]);
       setSelectedRouteIndex(0);
@@ -63,7 +209,15 @@ export default function RoutePlanner() {
       map.current = null;
       marker.current = null;
     };
-  }, [accessToken]);
+  }, [accessToken, stopRoutePreview]);
+
+  useEffect(() => {
+    return () => {
+      if (routePreviewAnimation.current !== null) {
+        cancelAnimationFrame(routePreviewAnimation.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!map.current || !start) {
@@ -162,6 +316,7 @@ export default function RoutePlanner() {
       return;
     }
 
+    stopRoutePreview();
     setIsLoading(true);
     setError(null);
 
@@ -203,6 +358,7 @@ export default function RoutePlanner() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        stopRoutePreview();
         setStart([position.coords.longitude, position.coords.latitude]);
         setRoutes([]);
         setSelectedRouteIndex(0);
@@ -211,6 +367,121 @@ export default function RoutePlanner() {
       () => setError("Could not read your current location."),
       { enableHighAccuracy: true },
     );
+  };
+
+  const previewSelectedRoute = () => {
+    const currentMap = map.current;
+
+    if (!currentMap || !selectedRoute) {
+      return;
+    }
+
+    const track = createRoutePreviewTrack(selectedRoute.geometry.coordinates);
+
+    if (track.segments.length === 0 || track.totalDistanceMeters === 0) {
+      return;
+    }
+
+    stopRoutePreview();
+    currentMap.stop();
+    setIsPreviewingRoute(true);
+
+    const previewDurationMs = clamp(
+      (track.totalDistanceMeters / PREVIEW_SPEED_METERS_PER_SECOND) * 1000,
+      PREVIEW_MIN_DURATION_MS,
+      PREVIEW_MAX_DURATION_MS,
+    );
+    const previewLookAheadMeters = clamp(
+      PREVIEW_CAMERA_ALTITUDE_METERS * Math.tan(toRadians(PREVIEW_TILT_DEGREES)),
+      PREVIEW_LOOK_AHEAD_METERS,
+      PREVIEW_MAX_LOOK_AHEAD_METERS,
+    );
+    const startedAt = performance.now();
+    let previousFrameTimestamp = startedAt;
+    let smoothedFocusCoordinate: Coordinates | null = null;
+    const usesTerrain = Boolean(currentMap.getTerrain());
+    const terrainElevationByCoordinate = new Map<string, number>();
+    const getPreviewElevation = (coordinate: Coordinates) => {
+      if (!usesTerrain) {
+        return 0;
+      }
+
+      const coordinateKey = `${coordinate[0].toFixed(4)},${coordinate[1].toFixed(
+        4,
+      )}`;
+      const cachedElevation = terrainElevationByCoordinate.get(coordinateKey);
+
+      if (cachedElevation !== undefined) {
+        return cachedElevation;
+      }
+
+      const elevation = currentMap.queryTerrainElevation(coordinate) ?? 0;
+      terrainElevationByCoordinate.set(coordinateKey, elevation);
+
+      return elevation;
+    };
+
+    const animateRoutePreview = (timestamp: number) => {
+      const progress = Math.min(
+        (timestamp - startedAt) / previewDurationMs,
+        1,
+      );
+      const cameraDistance = track.totalDistanceMeters * progress;
+      const cameraCoordinate = getRoutePreviewCoordinate(
+        track,
+        cameraDistance,
+      );
+      const rawFocusCoordinate = getRoutePreviewCoordinate(
+        track,
+        Math.min(
+          cameraDistance + previewLookAheadMeters,
+          track.totalDistanceMeters,
+        ),
+      );
+      const deltaSeconds = Math.max(timestamp - previousFrameTimestamp, 0) / 1000;
+      previousFrameTimestamp = timestamp;
+      const smoothingFactor = clamp(
+        1 -
+          Math.exp(
+            -PREVIEW_FOCUS_SMOOTHING_PER_SECOND * deltaSeconds,
+          ),
+        0,
+        1,
+      );
+
+      smoothedFocusCoordinate = smoothedFocusCoordinate
+        ? interpolateCoordinates(
+            smoothedFocusCoordinate,
+            rawFocusCoordinate,
+            smoothingFactor,
+          )
+        : rawFocusCoordinate;
+      const camera = currentMap.getFreeCameraOptions();
+      const cameraElevation = getPreviewElevation(cameraCoordinate);
+      const focusElevation = getPreviewElevation(smoothedFocusCoordinate);
+
+      camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+        cameraCoordinate,
+        cameraElevation + PREVIEW_CAMERA_ALTITUDE_METERS,
+      );
+      camera.lookAtPoint(
+        smoothedFocusCoordinate,
+        AUTOMATIC_CAMERA_UP_VECTOR,
+        focusElevation,
+      );
+      currentMap.setFreeCameraOptions(camera);
+
+      if (progress < 1) {
+        routePreviewAnimation.current =
+          requestAnimationFrame(animateRoutePreview);
+      } else {
+        routePreviewAnimation.current = null;
+        setIsPreviewingRoute(false);
+      }
+    };
+
+    routePreviewAnimation.current =
+      requestAnimationFrame(animateRoutePreview);
   };
 
   return (
@@ -269,6 +540,7 @@ export default function RoutePlanner() {
               step="1"
               value={distanceKm}
               onChange={(event) => {
+                stopRoutePreview();
                 setDistanceKm(Number(event.target.value));
                 setRoutes([]);
                 setSelectedRouteIndex(0);
@@ -295,7 +567,10 @@ export default function RoutePlanner() {
                     }
                     key={routeOption.id}
                     type="button"
-                    onClick={() => setSelectedRouteIndex(index)}
+                    onClick={() => {
+                      stopRoutePreview();
+                      setSelectedRouteIndex(index);
+                    }}
                   >
                     <span>Option {index + 1}</span>
                     <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
@@ -309,6 +584,15 @@ export default function RoutePlanner() {
           {selectedRoute && (
             <div className={styles.result}>
               <h3>Selected route</h3>
+              <button
+                className={styles.previewButton}
+                type="button"
+                onClick={
+                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
+                }
+              >
+                {isPreviewingRoute ? "Stop preview" : "Preview route in 3D"}
+              </button>
               <dl>
                 <div>
                   <dt>Distance</dt>
