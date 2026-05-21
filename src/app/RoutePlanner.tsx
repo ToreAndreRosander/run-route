@@ -23,6 +23,7 @@ const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
 const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
 const PREVIEW_DURATION_MS = 12000;
 const PREVIEW_LOOK_AHEAD_METERS = 90;
+const DEFAULT_CAMERA_UP_VECTOR = undefined;
 
 type RoutePreviewSegment = {
   start: Coordinates;
@@ -37,6 +38,7 @@ type RoutePreviewTrack = {
 };
 
 function getDistanceMeters(start: Coordinates, end: Coordinates) {
+  // Haversine great-circle distance between two longitude/latitude pairs.
   const earthRadiusMeters = 6371000;
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
   const startLatitude = toRadians(start[1]);
@@ -366,7 +368,11 @@ export default function RoutePlanner() {
         cameraCoordinate,
         cameraElevation + PREVIEW_CAMERA_ALTITUDE_METERS,
       );
-      camera.lookAtPoint(focusCoordinate, undefined, focusElevation);
+      camera.lookAtPoint(
+        focusCoordinate,
+        DEFAULT_CAMERA_UP_VECTOR,
+        focusElevation,
+      );
       currentMap.setFreeCameraOptions(camera);
 
       if (progress < 1) {
