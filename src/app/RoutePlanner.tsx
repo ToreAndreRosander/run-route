@@ -63,12 +63,10 @@ export default function RoutePlanner() {
     }
 
     if (!marker.current) {
-      marker.current = new mapboxgl.Marker({ color: "#ef4444" }).addTo(
-        map.current,
-      );
+      marker.current = new mapboxgl.Marker({ color: "#ef4444" });
     }
 
-    marker.current.setLngLat(start);
+    marker.current.setLngLat(start).addTo(map.current);
     map.current.flyTo({ center: start, zoom: Math.max(map.current.getZoom(), 13) });
   }, [start]);
 
