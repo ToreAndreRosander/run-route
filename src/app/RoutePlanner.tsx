@@ -42,7 +42,7 @@ export default function RoutePlanner() {
     mapboxgl.accessToken = accessToken;
     const nextMap = new mapboxgl.Map({
       container: mapContainer.current,
-      style: "mapbox://styles/mapbox/outdoors-v12",
+      style: "mapbox://styles/rosander/cmpfrmomg001201sgeczua5od",
       center: DEFAULT_CENTER as LngLatLike,
       zoom: 12,
     });
