@@ -574,7 +574,7 @@ export default function RoutePlanner() {
                   <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
-                  <dt>Ønsket distanse</dt>
+                  <dt>Målsatt distanse</dt>
                   <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
@@ -582,7 +582,7 @@ export default function RoutePlanner() {
                   <dd>{Math.round(selectedRoute.durationSeconds / 60)} min</dd>
                 </div>
                 <div>
-                  <dt>Avstand fra mål til start</dt>
+                  <dt>Avstand mellom slutt og start</dt>
                   <dd>{Math.round(selectedRoute.endDistanceMeters)} m</dd>
                 </div>
               </dl>
