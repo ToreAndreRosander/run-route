@@ -574,7 +574,7 @@ export default function RoutePlanner() {
                   <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
-                  <dt>Målsatt distanse</dt>
+                  <dt>Målsett distanse</dt>
                   <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
                 <div>
