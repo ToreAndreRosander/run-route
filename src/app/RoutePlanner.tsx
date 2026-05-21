@@ -515,6 +515,30 @@ export default function RoutePlanner() {
             Trykk på kartet eller bruk posisjonen i nettleseren for å sette
             startpunktet.
           </p>
+{selectedRoute && (
+            <div className={styles.result}>
+              <h3>Valgt rute</h3>
+              <button
+                className={styles.previewButton}
+                type="button"
+                onClick={
+                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
+                }
+              >
+                {isPreviewingRoute
+                  ? "Stopp forhåndsvisning"
+                  : "Forhåndsvis ruten i 3D"}
+              </button>
+              <dl>
+                <div>
+                  <dt>Distanse</dt>
+                  <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
+                </div>
+                
+                
+              </dl>
+            </div>
+          )}
 
           <button
             className={styles.secondaryButton}
@@ -554,41 +578,7 @@ export default function RoutePlanner() {
             {isLoading ? "Finner rute..." : "Finn rute"}
           </button>
 
-          {selectedRoute && (
-            <div className={styles.result}>
-              <h3>Valgt rute</h3>
-              <button
-                className={styles.previewButton}
-                type="button"
-                onClick={
-                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
-                }
-              >
-                {isPreviewingRoute
-                  ? "Stopp forhåndsvisning"
-                  : "Forhåndsvis ruten i 3D"}
-              </button>
-              <dl>
-                <div>
-                  <dt>Distanse</dt>
-                  <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
-                </div>
-                <div>
-                  <dt>Målsatt distanse</dt>
-                  <dd>{(selectedRoute.targetDistanceMeters / 1000).toFixed(2)} km</dd>
-                </div>
-                <div>
-                  <dt>Estimert tid</dt>
-                  <dd>{Math.round(selectedRoute.durationSeconds / 60)} min</dd>
-                </div>
-                <div>
-                  <dt>Avstand mellom slutt og start</dt>
-                  <dd>{Math.round(selectedRoute.endDistanceMeters)} m</dd>
-                </div>
-              </dl>
-            </div>
-          )}
-
+          
           {error && <p className={styles.error}>{error}</p>}
 
           {routes.length > 0 && (
