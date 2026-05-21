@@ -28,7 +28,7 @@ const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
 const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
 const PREVIEW_DURATION_MS = 12000;
 const PREVIEW_LOOK_AHEAD_METERS = 90;
-const NO_CAMERA_UP_VECTOR = undefined;
+const AUTOMATIC_CAMERA_UP_VECTOR = undefined;
 const EARTH_RADIUS_METERS = 6371000;
 
 type RoutePreviewSegment = {
@@ -114,8 +114,7 @@ function getRoutePreviewCoordinate(
     }
   }
 
-  const segment =
-    track.segments[low] ?? track.segments[track.segments.length - 1];
+  const segment = track.segments[low];
 
   const segmentProgress = Math.min(
     Math.max(
@@ -370,8 +369,8 @@ export default function RoutePlanner() {
         return 0;
       }
 
-      const coordinateKey = `${coordinate[0].toFixed(3)},${coordinate[1].toFixed(
-        3,
+      const coordinateKey = `${coordinate[0].toFixed(4)},${coordinate[1].toFixed(
+        4,
       )}`;
       const cachedElevation = terrainElevationByCoordinate.get(coordinateKey);
 
@@ -412,7 +411,7 @@ export default function RoutePlanner() {
       );
       camera.lookAtPoint(
         focusCoordinate,
-        NO_CAMERA_UP_VECTOR,
+        AUTOMATIC_CAMERA_UP_VECTOR,
         focusElevation,
       );
       currentMap.setFreeCameraOptions(camera);
