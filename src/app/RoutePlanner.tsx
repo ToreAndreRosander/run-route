@@ -23,7 +23,7 @@ const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
 const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
 const PREVIEW_DURATION_MS = 12000;
 const PREVIEW_LOOK_AHEAD_METERS = 90;
-const DEFAULT_CAMERA_UP_VECTOR = undefined;
+const NO_CAMERA_UP_VECTOR = undefined;
 
 type RoutePreviewSegment = {
   start: Coordinates;
@@ -63,9 +63,13 @@ function createRoutePreviewTrack(coordinates: GeoJSON.Position[]) {
   const segments: RoutePreviewSegment[] = [];
   let totalDistanceMeters = 0;
 
-  for (let index = 1; index < routeCoordinates.length; index += 1) {
-    const start = routeCoordinates[index - 1];
-    const end = routeCoordinates[index];
+  for (
+    let segmentIndex = 1;
+    segmentIndex < routeCoordinates.length;
+    segmentIndex += 1
+  ) {
+    const start = routeCoordinates[segmentIndex - 1];
+    const end = routeCoordinates[segmentIndex];
     const distanceMeters = getDistanceMeters(start, end);
 
     if (distanceMeters === 0) {
@@ -340,6 +344,25 @@ export default function RoutePlanner() {
     setIsPreviewingRoute(true);
 
     const startedAt = performance.now();
+    const usesTerrain = Boolean(currentMap.getTerrain());
+    const terrainElevationByCoordinate = new globalThis.Map<string, number>();
+    const getPreviewElevation = (coordinate: Coordinates) => {
+      if (!usesTerrain) {
+        return 0;
+      }
+
+      const coordinateKey = `${coordinate[0].toFixed(4)},${coordinate[1].toFixed(4)}`;
+      const cachedElevation = terrainElevationByCoordinate.get(coordinateKey);
+
+      if (cachedElevation !== undefined) {
+        return cachedElevation;
+      }
+
+      const elevation = currentMap.queryTerrainElevation(coordinate) ?? 0;
+      terrainElevationByCoordinate.set(coordinateKey, elevation);
+
+      return elevation;
+    };
 
     const animateRoutePreview = (timestamp: number) => {
       const progress = Math.min(
@@ -359,10 +382,8 @@ export default function RoutePlanner() {
         ),
       );
       const camera = currentMap.getFreeCameraOptions();
-      const cameraElevation =
-        currentMap.queryTerrainElevation(cameraCoordinate) ?? 0;
-      const focusElevation =
-        currentMap.queryTerrainElevation(focusCoordinate) ?? 0;
+      const cameraElevation = getPreviewElevation(cameraCoordinate);
+      const focusElevation = getPreviewElevation(focusCoordinate);
 
       camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
         cameraCoordinate,
@@ -370,7 +391,7 @@ export default function RoutePlanner() {
       );
       camera.lookAtPoint(
         focusCoordinate,
-        DEFAULT_CAMERA_UP_VECTOR,
+        NO_CAMERA_UP_VECTOR,
         focusElevation,
       );
       currentMap.setFreeCameraOptions(camera);
