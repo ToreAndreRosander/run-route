@@ -210,6 +210,19 @@
   margin-bottom: 14px;
 }
 
+.previewButton {
+  width: 100%;
+  margin-bottom: 16px;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 16px;
+  color: #102016;
+  background: #c7f0d8;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .result dl {
   display: grid;
   gap: 12px;

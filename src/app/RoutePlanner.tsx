@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import mapboxgl, { GeoJSONSource, LngLatLike, Map, Marker } from "mapbox-gl";
 import styles from "./page.module.css";
 
@@ -20,19 +20,115 @@ type RoutesResponse = {
 };
 
 const DEFAULT_CENTER: Coordinates = [10.7522, 59.9139];
+const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
+const PREVIEW_DURATION_MS = 12000;
+const PREVIEW_LOOK_AHEAD_METERS = 90;
+
+type RoutePreviewSegment = {
+  start: Coordinates;
+  end: Coordinates;
+  distanceMeters: number;
+  startsAtMeters: number;
+};
+
+type RoutePreviewTrack = {
+  segments: RoutePreviewSegment[];
+  totalDistanceMeters: number;
+};
+
+function getDistanceMeters(start: Coordinates, end: Coordinates) {
+  const earthRadiusMeters = 6371000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const startLatitude = toRadians(start[1]);
+  const endLatitude = toRadians(end[1]);
+  const latitudeDelta = toRadians(end[1] - start[1]);
+  const longitudeDelta = toRadians(end[0] - start[0]);
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(startLatitude) *
+      Math.cos(endLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return (
+    earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  );
+}
+
+function createRoutePreviewTrack(coordinates: GeoJSON.Position[]) {
+  const routeCoordinates = coordinates.map(
+    (coordinate) => [coordinate[0], coordinate[1]] as Coordinates,
+  );
+  const segments: RoutePreviewSegment[] = [];
+  let totalDistanceMeters = 0;
+
+  for (let index = 1; index < routeCoordinates.length; index += 1) {
+    const start = routeCoordinates[index - 1];
+    const end = routeCoordinates[index];
+    const distanceMeters = getDistanceMeters(start, end);
+
+    if (distanceMeters === 0) {
+      continue;
+    }
+
+    segments.push({
+      start,
+      end,
+      distanceMeters,
+      startsAtMeters: totalDistanceMeters,
+    });
+    totalDistanceMeters += distanceMeters;
+  }
+
+  return { segments, totalDistanceMeters };
+}
+
+function getRoutePreviewCoordinate(
+  track: RoutePreviewTrack,
+  distanceMeters: number,
+) {
+  const segment =
+    track.segments.find(
+      (candidate) =>
+        distanceMeters <= candidate.startsAtMeters + candidate.distanceMeters,
+    ) ?? track.segments[track.segments.length - 1];
+
+  const segmentProgress = Math.min(
+    Math.max(
+      (distanceMeters - segment.startsAtMeters) / segment.distanceMeters,
+      0,
+    ),
+    1,
+  );
+
+  return [
+    segment.start[0] + (segment.end[0] - segment.start[0]) * segmentProgress,
+    segment.start[1] + (segment.end[1] - segment.start[1]) * segmentProgress,
+  ] as Coordinates;
+}
 
 export default function RoutePlanner() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<Map | null>(null);
   const marker = useRef<Marker | null>(null);
+  const routePreviewAnimation = useRef<number | null>(null);
   const [start, setStart] = useState<Coordinates | null>(null);
   const [distanceKm, setDistanceKm] = useState(5);
   const [routes, setRoutes] = useState<RouteResponse[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreviewingRoute, setIsPreviewingRoute] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const selectedRoute = routes[selectedRouteIndex] ?? null;
+
+  const stopRoutePreview = useCallback(() => {
+    if (routePreviewAnimation.current !== null) {
+      cancelAnimationFrame(routePreviewAnimation.current);
+      routePreviewAnimation.current = null;
+    }
+
+    setIsPreviewingRoute(false);
+  }, []);
 
   useEffect(() => {
     if (!mapContainer.current || map.current || !accessToken) {
@@ -49,6 +145,7 @@ export default function RoutePlanner() {
 
     nextMap.addControl(new mapboxgl.NavigationControl(), "top-right");
     nextMap.on("click", (event) => {
+      stopRoutePreview();
       setStart([event.lngLat.lng, event.lngLat.lat]);
       setRoutes([]);
       setSelectedRouteIndex(0);
@@ -63,7 +160,15 @@ export default function RoutePlanner() {
       map.current = null;
       marker.current = null;
     };
-  }, [accessToken]);
+  }, [accessToken, stopRoutePreview]);
+
+  useEffect(() => {
+    return () => {
+      if (routePreviewAnimation.current !== null) {
+        cancelAnimationFrame(routePreviewAnimation.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!map.current || !start) {
@@ -162,6 +267,7 @@ export default function RoutePlanner() {
       return;
     }
 
+    stopRoutePreview();
     setIsLoading(true);
     setError(null);
 
@@ -203,6 +309,7 @@ export default function RoutePlanner() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        stopRoutePreview();
         setStart([position.coords.longitude, position.coords.latitude]);
         setRoutes([]);
         setSelectedRouteIndex(0);
@@ -211,6 +318,68 @@ export default function RoutePlanner() {
       () => setError("Could not read your current location."),
       { enableHighAccuracy: true },
     );
+  };
+
+  const previewSelectedRoute = () => {
+    const currentMap = map.current;
+
+    if (!currentMap || !selectedRoute) {
+      return;
+    }
+
+    const track = createRoutePreviewTrack(selectedRoute.geometry.coordinates);
+
+    if (track.segments.length === 0 || track.totalDistanceMeters === 0) {
+      return;
+    }
+
+    stopRoutePreview();
+    currentMap.stop();
+    setIsPreviewingRoute(true);
+
+    const startedAt = performance.now();
+
+    const animateRoutePreview = (timestamp: number) => {
+      const progress = Math.min(
+        (timestamp - startedAt) / PREVIEW_DURATION_MS,
+        1,
+      );
+      const cameraDistance = track.totalDistanceMeters * progress;
+      const cameraCoordinate = getRoutePreviewCoordinate(
+        track,
+        cameraDistance,
+      );
+      const focusCoordinate = getRoutePreviewCoordinate(
+        track,
+        Math.min(
+          cameraDistance + PREVIEW_LOOK_AHEAD_METERS,
+          track.totalDistanceMeters,
+        ),
+      );
+      const camera = currentMap.getFreeCameraOptions();
+      const cameraElevation =
+        currentMap.queryTerrainElevation(cameraCoordinate) ?? 0;
+      const focusElevation =
+        currentMap.queryTerrainElevation(focusCoordinate) ?? 0;
+
+      camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+        cameraCoordinate,
+        cameraElevation + PREVIEW_CAMERA_ALTITUDE_METERS,
+      );
+      camera.lookAtPoint(focusCoordinate, undefined, focusElevation);
+      currentMap.setFreeCameraOptions(camera);
+
+      if (progress < 1) {
+        routePreviewAnimation.current =
+          requestAnimationFrame(animateRoutePreview);
+      } else {
+        routePreviewAnimation.current = null;
+        setIsPreviewingRoute(false);
+      }
+    };
+
+    routePreviewAnimation.current =
+      requestAnimationFrame(animateRoutePreview);
   };
 
   return (
@@ -269,6 +438,7 @@ export default function RoutePlanner() {
               step="1"
               value={distanceKm}
               onChange={(event) => {
+                stopRoutePreview();
                 setDistanceKm(Number(event.target.value));
                 setRoutes([]);
                 setSelectedRouteIndex(0);
@@ -295,7 +465,10 @@ export default function RoutePlanner() {
                     }
                     key={routeOption.id}
                     type="button"
-                    onClick={() => setSelectedRouteIndex(index)}
+                    onClick={() => {
+                      stopRoutePreview();
+                      setSelectedRouteIndex(index);
+                    }}
                   >
                     <span>Option {index + 1}</span>
                     <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
@@ -309,6 +482,15 @@ export default function RoutePlanner() {
           {selectedRoute && (
             <div className={styles.result}>
               <h3>Selected route</h3>
+              <button
+                className={styles.previewButton}
+                type="button"
+                onClick={
+                  isPreviewingRoute ? stopRoutePreview : previewSelectedRoute
+                }
+              >
+                {isPreviewingRoute ? "Stop preview" : "Preview route in 3D"}
+              </button>
               <dl>
                 <div>
                   <dt>Distance</dt>
