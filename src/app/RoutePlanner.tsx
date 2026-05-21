@@ -29,6 +29,7 @@ const PREVIEW_CAMERA_ALTITUDE_METERS = 220;
 const PREVIEW_DURATION_MS = 12000;
 const PREVIEW_LOOK_AHEAD_METERS = 90;
 const NO_CAMERA_UP_VECTOR = undefined;
+const EARTH_RADIUS_METERS = 6371000;
 
 type RoutePreviewSegment = {
   start: Coordinates;
@@ -44,7 +45,6 @@ type RoutePreviewTrack = {
 
 function getDistanceMeters(start: Coordinates, end: Coordinates) {
   // Haversine great-circle distance between two longitude/latitude pairs.
-  const earthRadiusMeters = 6371000;
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
   const startLatitude = toRadians(start[1]);
   const endLatitude = toRadians(end[1]);
@@ -57,7 +57,7 @@ function getDistanceMeters(start: Coordinates, end: Coordinates) {
       Math.sin(longitudeDelta / 2) ** 2;
 
   return (
-    earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    EARTH_RADIUS_METERS * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   );
 }
 
@@ -97,11 +97,25 @@ function getRoutePreviewCoordinate(
   track: RoutePreviewTrack,
   distanceMeters: number,
 ) {
+  let low = 0;
+  let high = track.segments.length - 1;
+
+  while (low < high) {
+    const midpoint = Math.floor((low + high) / 2);
+    const midpointSegment = track.segments[midpoint];
+
+    if (
+      distanceMeters <=
+      midpointSegment.startsAtMeters + midpointSegment.distanceMeters
+    ) {
+      high = midpoint;
+    } else {
+      low = midpoint + 1;
+    }
+  }
+
   const segment =
-    track.segments.find(
-      (candidate) =>
-        distanceMeters <= candidate.startsAtMeters + candidate.distanceMeters,
-    ) ?? track.segments[track.segments.length - 1];
+    track.segments[low] ?? track.segments[track.segments.length - 1];
 
   const segmentProgress = Math.min(
     Math.max(
@@ -356,7 +370,9 @@ export default function RoutePlanner() {
         return 0;
       }
 
-      const coordinateKey = `${coordinate[0].toFixed(4)},${coordinate[1].toFixed(4)}`;
+      const coordinateKey = `${coordinate[0].toFixed(3)},${coordinate[1].toFixed(
+        3,
+      )}`;
       const cachedElevation = terrainElevationByCoordinate.get(coordinateKey);
 
       if (cachedElevation !== undefined) {
