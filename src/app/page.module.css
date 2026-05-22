@@ -285,6 +285,9 @@
   }
 
   .planner {
+    --mobile-sheet-handle: #c9d8cf;
+    --mobile-sheet-overlap: 72px;
+
     display: block;
     max-width: none;
     min-height: calc(100svh - 188px);
@@ -310,7 +313,7 @@
     position: relative;
     z-index: 1;
     max-height: min(60svh, 520px);
-    margin: -72px 12px 16px;
+    margin: calc(-1 * var(--mobile-sheet-overlap)) 12px 16px;
     padding: 22px 18px 18px;
     overflow-y: auto;
     border-radius: 28px 28px 22px 22px;
@@ -323,7 +326,7 @@
     height: 5px;
     margin: -6px auto 0;
     border-radius: 999px;
-    background: #c9d8cf;
+    background: var(--mobile-sheet-handle);
     content: "";
   }
 
