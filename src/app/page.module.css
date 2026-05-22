@@ -289,6 +289,7 @@
     --mobile-sheet-overlap: 72px;
 
     display: block;
+    isolation: isolate;
     max-width: none;
     min-height: calc(100svh - 188px);
   }
@@ -296,6 +297,7 @@
   .mapPanel {
     position: sticky;
     top: 0;
+    z-index: 0;
     height: 58svh;
     min-height: 360px;
     max-height: 560px;
@@ -311,7 +313,7 @@
 
   .controls {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     max-height: min(60svh, 520px);
     margin: calc(-1 * var(--mobile-sheet-overlap)) 12px 16px;
     padding: 22px 18px 18px;
@@ -319,6 +321,8 @@
     border-radius: 28px 28px 22px 22px;
     box-shadow: 0 18px 48px rgba(24, 72, 45, 0.24);
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
   }
 
   .controls::before {
