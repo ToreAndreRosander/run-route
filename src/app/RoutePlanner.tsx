@@ -515,7 +515,7 @@ export default function RoutePlanner() {
             Trykk på kartet eller bruk posisjonen i nettleseren for å sette
             startpunktet.
           </p>
-{selectedRoute && (
+          {selectedRoute && (
             <div className={styles.result}>
               <h3>Valgt rute</h3>
               <button
@@ -534,9 +534,34 @@ export default function RoutePlanner() {
                   <dt>Distanse</dt>
                   <dd>{(selectedRoute.distanceMeters / 1000).toFixed(2)} km</dd>
                 </div>
-                
-                
               </dl>
+            </div>
+          )}
+
+          {routes.length > 0 && (
+            <div className={styles.routeOptions}>
+              <h3>Velg en rute</h3>
+              <div className={styles.optionList}>
+                {routes.map((routeOption, index) => (
+                  <button
+                    className={
+                      index === selectedRouteIndex
+                        ? styles.routeOptionActive
+                        : styles.routeOption
+                    }
+                    key={routeOption.id}
+                    type="button"
+                    onClick={() => {
+                      stopRoutePreview();
+                      setSelectedRouteIndex(index);
+                    }}
+                  >
+                    <span>Alternativ {index + 1}</span>
+                    <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
+                    <small>{Math.round(routeOption.durationSeconds / 60)} min</small>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -578,35 +603,7 @@ export default function RoutePlanner() {
             {isLoading ? "Finner rute..." : "Finn rute"}
           </button>
 
-          
           {error && <p className={styles.error}>{error}</p>}
-
-          {routes.length > 0 && (
-            <div className={styles.routeOptions}>
-              <h3>Velg en rute</h3>
-              <div className={styles.optionList}>
-                {routes.map((routeOption, index) => (
-                  <button
-                    className={
-                      index === selectedRouteIndex
-                        ? styles.routeOptionActive
-                        : styles.routeOption
-                    }
-                    key={routeOption.id}
-                    type="button"
-                    onClick={() => {
-                      stopRoutePreview();
-                      setSelectedRouteIndex(index);
-                    }}
-                  >
-                    <span>Alternativ {index + 1}</span>
-                    <strong>{(routeOption.distanceMeters / 1000).toFixed(2)} km</strong>
-                    <small>{Math.round(routeOption.durationSeconds / 60)} min</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </form>
       </section>
     </main>
