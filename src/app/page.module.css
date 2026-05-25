@@ -259,10 +259,100 @@
 
 @media (max-width: 600px) {
   .page {
-    padding: 16px;
+    min-height: 100svh;
+    padding: 0;
+  }
+
+  .hero {
+    margin: 0;
+    padding: 20px 16px 12px;
+  }
+
+  .eyebrow {
+    margin-bottom: 8px;
+    font-size: 0.72rem;
+  }
+
+  .hero h1 {
+    font-size: clamp(1.9rem, 10vw, 2.7rem);
+    line-height: 1;
+  }
+
+  .lead {
+    margin-top: 12px;
+    font-size: 0.98rem;
+    line-height: 1.5;
+  }
+
+  .planner {
+    --mobile-sheet-handle: #c9d8cf;
+    --mobile-sheet-overlap: 72px;
+
+    display: block;
+    isolation: isolate;
+    max-width: none;
+    min-height: calc(100svh - 188px);
+  }
+
+  .mapPanel {
+    position: sticky;
+    top: 0;
+    z-index: 0;
+    height: 58svh;
+    min-height: 360px;
+    max-height: 560px;
+    border-width: 1px 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .map {
+    height: 100%;
+    min-height: 100%;
   }
 
   .controls {
-    padding: 22px;
+    position: fixed;
+    z-index: 2;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-height: min(60svh, 520px);
+    margin: 0;
+    padding: 22px 18px 18px;
+    overflow-y: auto;
+    border-radius: 28px 28px 22px 22px;
+    box-shadow: 0 18px 48px rgba(24, 72, 45, 0.24);
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .controls::before {
+    width: 48px;
+    height: 5px;
+    margin: -6px auto 0;
+    border-radius: 999px;
+    background: var(--mobile-sheet-handle);
+    content: "";
+  }
+
+  .controls h2 {
+    font-size: 1.35rem;
+  }
+
+  .optionList {
+    display: flex;
+    gap: 10px;
+    margin: 0 -18px;
+    padding: 0 18px 4px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  .routeOption,
+  .routeOptionActive {
+    min-width: 154px;
+    scroll-snap-align: start;
   }
 }
